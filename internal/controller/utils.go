@@ -68,14 +68,17 @@ func getAPIDetails(
 		return &cf.API{}, &corev1.Secret{}, err
 	}
 
+	apiTokenKey := tunnelSpec.Cloudflare.APITokenSecretKey()
+	apiKeyKey := tunnelSpec.Cloudflare.APIKeySecretKey()
+
 	// Read secret for API Token
-	cfAPITokenB64, okApiToken := cfSecret.Data[tunnelSpec.Cloudflare.CLOUDFLARE_API_TOKEN]
+	cfAPITokenB64, okAPIToken := cfSecret.Data[apiTokenKey]
 
 	// Read secret for API Key
-	cfAPIKeyB64, okApiKey := cfSecret.Data[tunnelSpec.Cloudflare.CLOUDFLARE_API_KEY]
+	cfAPIKeyB64, okAPIKey := cfSecret.Data[apiKeyKey]
 
-	if !(okApiKey || okApiToken) {
-		err := fmt.Errorf("neither %s not %s found in secret %s, cannot construct client", tunnelSpec.Cloudflare.CLOUDFLARE_API_TOKEN, tunnelSpec.Cloudflare.CLOUDFLARE_API_KEY, tunnelSpec.Cloudflare.Secret)
+	if !okAPIKey && !okAPIToken {
+		err := fmt.Errorf("neither %s nor %s found in secret %s, cannot construct client", apiTokenKey, apiKeyKey, tunnelSpec.Cloudflare.Secret)
 		log.Error(err, "key not found in secret")
 		return nil, nil, err
 	}
@@ -83,6 +86,11 @@ func getAPIDetails(
 	apiToken := string(cfAPITokenB64)
 	apiKey := string(cfAPIKeyB64)
 	apiEmail := tunnelSpec.Cloudflare.Email
+	if apiEmail == "" {
+		if cfAPIEmailB64, ok := cfSecret.Data[tunnelSpec.Cloudflare.APIEmailSecretKey()]; ok {
+			apiEmail = string(cfAPIEmailB64)
+		}
+	}
 
 	cloudflareClient, err := getCloudflareClient(apiKey, apiEmail, apiToken)
 	if err != nil {

@@ -20,6 +20,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	DefaultCloudflareAPIKeySecretKey               = "CLOUDFLARE_API_KEY"
+	DefaultCloudflareAPITokenSecretKey             = "CLOUDFLARE_API_TOKEN"
+	DefaultCloudflareEmailSecretKey                = "CLOUDFLARE_EMAIL"
+	DefaultCloudflareTunnelCredentialFileSecretKey = "CLOUDFLARE_TUNNEL_CREDENTIAL_FILE"
+	DefaultCloudflareTunnelCredentialSecretKey     = "CLOUDFLARE_TUNNEL_CREDENTIAL_SECRET"
+)
+
 // ExistingTunnel spec needs either a Tunnel Id or a Name to find it on Cloudflare.
 type ExistingTunnel struct {
 	// +kubebuilder:validation:Optional
@@ -63,11 +71,26 @@ type CloudflareDetails struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=CLOUDFLARE_API_KEY
 	// Key in the secret to use for Cloudflare API Key, defaults to CLOUDFLARE_API_KEY. Needs Email also to be provided.
+	ApiKeyKey string `json:"apiKeyKey,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=CLOUDFLARE_API_TOKEN
+	// Key in the secret to use for Cloudflare API token, defaults to CLOUDFLARE_API_TOKEN
+	ApiTokenKey string `json:"apiTokenKey,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=CLOUDFLARE_EMAIL
+	// Key in the secret to use for Cloudflare email when Email is not set explicitly, defaults to CLOUDFLARE_EMAIL.
+	EmailKey string `json:"emailKey,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// Deprecated: use apiKeyKey instead.
+	// Key in the secret to use for Cloudflare API Key, defaults to CLOUDFLARE_API_KEY. Needs Email also to be provided.
 	// For Delete operations for new tunnels only, or as an alternate to API Token
 	CLOUDFLARE_API_KEY string `json:"CLOUDFLARE_API_KEY,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:=CLOUDFLARE_API_TOKEN
+	// Deprecated: use apiTokenKey instead.
 	// Key in the secret to use for Cloudflare API token, defaults to CLOUDFLARE_API_TOKEN
 	CLOUDFLARE_API_TOKEN string `json:"CLOUDFLARE_API_TOKEN,omitempty"`
 
@@ -80,6 +103,46 @@ type CloudflareDetails struct {
 	// +kubebuilder:default:=CLOUDFLARE_TUNNEL_CREDENTIAL_SECRET
 	// Key in the secret to use as tunnel secret for an existing tunnel, defaults to CLOUDFLARE_TUNNEL_CREDENTIAL_SECRET
 	CLOUDFLARE_TUNNEL_CREDENTIAL_SECRET string `json:"CLOUDFLARE_TUNNEL_CREDENTIAL_SECRET,omitempty"`
+}
+
+func (in CloudflareDetails) APIKeySecretKey() string {
+	return resolveSecretKey(in.ApiKeyKey, in.CLOUDFLARE_API_KEY, DefaultCloudflareAPIKeySecretKey)
+}
+
+func (in CloudflareDetails) APITokenSecretKey() string {
+	return resolveSecretKey(in.ApiTokenKey, in.CLOUDFLARE_API_TOKEN, DefaultCloudflareAPITokenSecretKey)
+}
+
+func (in CloudflareDetails) APIEmailSecretKey() string {
+	if in.EmailKey != "" {
+		return in.EmailKey
+	}
+
+	return DefaultCloudflareEmailSecretKey
+}
+
+func (in CloudflareDetails) TunnelCredentialFileSecretKey() string {
+	return resolveSecretKey("", in.CLOUDFLARE_TUNNEL_CREDENTIAL_FILE, DefaultCloudflareTunnelCredentialFileSecretKey)
+}
+
+func (in CloudflareDetails) TunnelCredentialSecretSecretKey() string {
+	return resolveSecretKey("", in.CLOUDFLARE_TUNNEL_CREDENTIAL_SECRET, DefaultCloudflareTunnelCredentialSecretKey)
+}
+
+func resolveSecretKey(preferred string, legacy string, defaultValue string) string {
+	switch {
+	case preferred == "":
+		if legacy != "" {
+			return legacy
+		}
+		return defaultValue
+	case preferred != defaultValue:
+		return preferred
+	case legacy != "" && legacy != defaultValue:
+		return legacy
+	default:
+		return preferred
+	}
 }
 
 // TunnelSpec defines the desired state of Tunnel

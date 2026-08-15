@@ -96,12 +96,16 @@ func setupExistingTunnel(r GenericTunnelReconciler) error {
 	r.SetCfAPI(cfAPI)
 
 	// Read secret for credentials file
-	cfCredFileB64, okCredFile := r.GetCfSecret().Data[r.GetTunnel().GetSpec().Cloudflare.CLOUDFLARE_TUNNEL_CREDENTIAL_FILE]
-	cfSecretB64, okSecret := r.GetCfSecret().Data[r.GetTunnel().GetSpec().Cloudflare.CLOUDFLARE_TUNNEL_CREDENTIAL_SECRET]
+	credFileKey := r.GetTunnel().GetSpec().Cloudflare.TunnelCredentialFileSecretKey()
+	credSecretKey := r.GetTunnel().GetSpec().Cloudflare.TunnelCredentialSecretSecretKey()
+	cfCredFileB64, okCredFile := r.GetCfSecret().Data[credFileKey]
+	cfSecretB64, okSecret := r.GetCfSecret().Data[credSecretKey]
 
 	if !okCredFile && !okSecret {
 		err := fmt.Errorf("neither key not found in secret")
-		r.GetLog().Error(err, "neither key not found in secret", "secret", r.GetTunnel().GetSpec().Cloudflare.Secret, "key1", r.GetTunnel().GetSpec().Cloudflare.CLOUDFLARE_TUNNEL_CREDENTIAL_FILE, "key2", r.GetTunnel().GetSpec().Cloudflare.CLOUDFLARE_TUNNEL_CREDENTIAL_SECRET)
+		r.GetLog().Error(
+			err, "neither key not found in secret", "secret", r.GetTunnel().GetSpec().Cloudflare.Secret, "key1", credFileKey, "key2", credSecretKey,
+		)
 		r.GetRecorder().Event(r.GetTunnel().GetObject(), corev1.EventTypeWarning, "ErrSpecSecret", "Neither Key found in Secret")
 		return err
 	}

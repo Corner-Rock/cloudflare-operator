@@ -14,3 +14,6 @@ spec:
     email: email@example.com
     accountName: <Cloudflare account name>
     accountId: <Cloudflare account ID>
+    # apiTokenKey: <override key to be used reading from secret>
+    # apiKeyKey: <override key to be used reading from secret>
+    # emailKey: <override key to be used reading from secret>

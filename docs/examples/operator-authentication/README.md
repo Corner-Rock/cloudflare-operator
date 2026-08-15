@@ -23,7 +23,7 @@ Cloudflare-operator will use an API token _or_ API Key for each Tunnel/ClusterTu
 
 These API tokens can be found under [My Profile > API tokens](https://dash.cloudflare.com/profile/api-tokens) page in the Cloudflare Dashboard.
 
-For the `CLOUDFLARE_API_TOKEN`, create a new "custom" token with the following:
+For the secret value referenced by `spec.cloudflare.apiTokenKey` (defaults to `CLOUDFLARE_API_TOKEN`), create a new "custom" token with the following:
 
 1. Permissions
    * Account > Cloudflare Tunnel > Edit : To create new tunnels
@@ -38,7 +38,7 @@ For the `CLOUDFLARE_API_TOKEN`, create a new "custom" token with the following:
 
 > It is not recommended to use an API Key due to granting excess permissions. Use an API token instead.
 
-For `CLOUDFLARE_API_KEY`, copy the Global API Key shown at the bottom of [Cloudflare's API token page](https://dash.cloudflare.com/profile/api-tokens).
+For the secret value referenced by `spec.cloudflare.apiKeyKey` (defaults to `CLOUDFLARE_API_KEY`), copy the Global API Key shown at the bottom of [Cloudflare's API token page](https://dash.cloudflare.com/profile/api-tokens).
 
 ## Secret creation
 
@@ -51,9 +51,19 @@ For `CLOUDFLARE_API_KEY`, copy the Global API Key shown at the bottom of [Cloudf
      --from-literal CLOUDFLARE_API_TOKEN=<api-token> 
    ```
 
+If your secret uses a different key name, keep the Secret as-is and point the Tunnel/ClusterTunnel at it:
+
+```yaml
+spec:
+  cloudflare:
+    secret: cloudflare-secrets
+    apiTokenKey: token
+```
+
 ### Declarative
 
 1. Replace `<api-token>` in `manifests/secret.yaml` with your cloudflare API token.
+1. If your secret sync tool writes a different field name, update your Tunnel/ClusterTunnel with `spec.cloudflare.apiTokenKey`, `apiKeyKey`, or `emailKey` instead of renaming the Secret data key.
 1. Deploy the secret
    ```bash
    kubectl apply -f manifests/secret.yaml

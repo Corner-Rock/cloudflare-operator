@@ -1,20 +1,25 @@
-name: ci
+name: release
 
 on:
   push:
     branches:
       - "main"
-  create:
     tags:
       - "v*"
+  workflow_dispatch:
   pull_request:
     branches:
       - "main"
-  workflow_dispatch:
 
 jobs:
   docker:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    env:
+      GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/cloudflare-operator
+      DOCKERHUB_IMAGE: ${{ secrets.DOCKERHUB_USERNAME != '' && format('{0}/cloudflare-operator', secrets.DOCKERHUB_USERNAME) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,8 +29,8 @@ jobs:
         with:
           # list of Docker images to use as base name for tags
           images: |
-            adyanth/cloudflare-operator
-            ghcr.io/adyanth/cloudflare-operator
+            ${{ env.GHCR_IMAGE }}
+            ${{ env.DOCKERHUB_IMAGE }}
           # generate Docker tags based on the following events/attributes
           tags: |
             type=ref,event=branch
@@ -40,13 +45,13 @@ jobs:
         uses: docker/setup-buildx-action@v1
       - name: Login to DockerHub
         uses: docker/login-action@v1
-        if: github.event.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+        if: (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') && env.DOCKERHUB_IMAGE != ''
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v1
-        if: github.event.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
@@ -55,29 +60,51 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           context: .
-          platforms: ${{ github.event.ref_type == 'tag' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
-          push: ${{ github.event.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
+          platforms: ${{ startsWith(github.ref, 'refs/tags/') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          push: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
       - name: Docker Hub Description
-        if: github.event.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+        if: (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') && env.DOCKERHUB_IMAGE != ''
         uses: peter-evans/dockerhub-description@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: adyanth/cloudflare-operator
+          repository: ${{ env.DOCKERHUB_IMAGE }}
           readme-filepath: ./README.md
           short-description: "Cloudflare Operator Controller Manager"
       - name: Setup Go 1.24
         uses: actions/setup-go@v5
-        if: github.event.ref_type == 'tag'
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           go-version: 1.24
+      - name: Resolve installer image base
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          if [[ -n "${DOCKERHUB_IMAGE}" ]]; then
+            echo "INSTALLER_IMAGE_TAG_BASE=${DOCKERHUB_IMAGE}" >> "${GITHUB_ENV}"
+          else
+            echo "INSTALLER_IMAGE_TAG_BASE=${GHCR_IMAGE}" >> "${GITHUB_ENV}"
+          fi
       - name: Build installer
-        if: github.event.ref_type == 'tag'
-        run: make build-installer
-      - name: Publish installer
-        if: github.event.ref_type == 'tag'
+        if: startsWith(github.ref, 'refs/tags/')
+        run: make build-installer VERSION="${GITHUB_REF_NAME#v}" IMAGE_TAG_BASE="${INSTALLER_IMAGE_TAG_BASE}"
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          release_args=(
+            "${GITHUB_REF_NAME}"
+            --title "${GITHUB_REF_NAME}"
+            --generate-notes
+          )
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || gh release create "${release_args[@]}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Publish installer assets
+        if: startsWith(github.ref, 'refs/tags/')
         run: gh release upload ${{ github.ref_name }} dist/*.yaml
         env:
           GH_TOKEN: ${{ github.token }}

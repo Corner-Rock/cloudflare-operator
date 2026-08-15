@@ -21,13 +21,15 @@ spec:
     accountId: account-id
     accountName: Account Name
     domain: example.com                                                         # Domain where the tunnel runs
-    email: admin@example.com                                                    # Email ID used to login to Cloudflare
+    email: admin@example.com                                                    # Email ID used to login to Cloudflare. Optional if you store it in the secret under emailKey.
     # Cloudflare credentials secret, and its key overrides. All the overrides are optional and default to the shown values.
     secret: cloudflare-secrets
     ## Key in the secret to use for Cloudflare API token. See getting started for information on scopes
-    CLOUDFLARE_API_TOKEN: CLOUDFLARE_API_TOKEN
+    apiTokenKey: CLOUDFLARE_API_TOKEN
     ## Key in the secret to use for Cloudflare API Key. Needs Email also to be provided. For delete operations on new tunnels only, or as an alternate to API Token
-    CLOUDFLARE_API_KEY: CLOUDFLARE_API_KEY
+    apiKeyKey: CLOUDFLARE_API_KEY
+    ## Key in the secret to use for the Cloudflare email when cloudflare.email is omitted
+    emailKey: CLOUDFLARE_EMAIL
     ## Key in the secret to use as credentials.json for an existing tunnel
     CLOUDFLARE_TUNNEL_CREDENTIAL_FILE: CLOUDFLARE_TUNNEL_CREDENTIAL_FILE
     ## Key in the secret to use as tunnel secret for an existing tunnel
