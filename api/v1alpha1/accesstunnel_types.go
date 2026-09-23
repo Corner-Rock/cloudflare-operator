@@ -40,7 +40,7 @@ type AccessTunnelServiceConfig struct {
 type AccessTunnelTarget struct {
 	// cloudflared image to use
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:="cloudflare/cloudflared:2025.4.0"
+	// +kubebuilder:default:="cloudflare/cloudflared:2026.9.1"
 	Image string `json:"image,omitempty"`
 
 	// Fqdn specifies the DNS name to access

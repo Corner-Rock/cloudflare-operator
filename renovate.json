@@ -1,0 +1,17 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["gomod", "dockerfile", "github-actions", "custom.regex"],
+  "postUpdateOptions": ["gomodTidy"],
+  "customManagers": [
+    {
+      "description": "Default cloudflared image baked into the CRDs",
+      "customType": "regex",
+      "managerFilePatterns": ["/^api/.+_types\\.go$/", "/^config/crd/bases/.+\\.yaml$/", "/^docs/.+\\.md$/"],
+      "matchStrings": ["cloudflare/cloudflared:(?<currentValue>\\d{4}\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "cloudflare/cloudflared",
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "labels": ["renovate"]
+}

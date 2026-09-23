@@ -45,6 +45,29 @@ type DnsManagedRecordTxt struct {
 	TunnelId   string // TunnelId of the managed record
 }
 
+// DnsCNameRecord is the subset of an existing CNAME record needed to decide whether it must be rewritten
+type DnsCNameRecord struct {
+	Id      string
+	Content string
+	Proxied bool
+}
+
+// TunnelDomain returns the CNAME target that routes a hostname to this tunnel
+func (c *API) TunnelDomain() string {
+	return fmt.Sprintf("%s.cfargotunnel.com", c.ValidTunnelId)
+}
+
+// DnsUpToDate reports whether the CNAME and its managed TXT marker already describe this tunnel,
+// so a reconcile can skip the Cloudflare writes entirely.
+func (c *API) DnsUpToDate(existing DnsCNameRecord, txtId string, txt DnsManagedRecordTxt) bool {
+	return existing.Id != "" &&
+		txtId != "" &&
+		txt.DnsId == existing.Id &&
+		txt.TunnelId == c.ValidTunnelId &&
+		existing.Content == c.TunnelDomain() &&
+		existing.Proxied
+}
+
 // CreateTunnel creates a Cloudflare Tunnel and returns the tunnel Id and credentials file
 func (c *API) CreateTunnel() (string, string, error) {
 	if _, err := c.GetAccountId(); err != nil {
@@ -362,7 +385,7 @@ func (c *API) InsertOrUpdateCName(fqdn, dnsId string) (string, error) {
 			ID:      dnsId,
 			Type:    "CNAME",
 			Name:    fqdn,
-			Content: fmt.Sprintf("%s.cfargotunnel.com", c.ValidTunnelId),
+			Content: c.TunnelDomain(),
 			Comment: ptr.To("Managed by cloudflare-operator"),
 			TTL:     1,            // Automatic TTL
 			Proxied: ptr.To(true), // For Cloudflare tunnels
@@ -379,7 +402,7 @@ func (c *API) InsertOrUpdateCName(fqdn, dnsId string) (string, error) {
 		createParams := cloudflare.CreateDNSRecordParams{
 			Type:    "CNAME",
 			Name:    fqdn,
-			Content: fmt.Sprintf("%s.cfargotunnel.com", c.ValidTunnelId),
+			Content: c.TunnelDomain(),
 			Comment: "Managed by cloudflare-operator",
 			TTL:     1,            // Automatic TTL
 			Proxied: ptr.To(true), // For Cloudflare tunnels
@@ -415,9 +438,15 @@ func (c *API) DeleteDNSId(fqdn, dnsId string, created bool) error {
 
 // GetDNSCNameId returns the ID of the CNAME record requested
 func (c *API) GetDNSCNameId(fqdn string) (string, error) {
+	record, err := c.GetDNSCName(fqdn)
+	return record.Id, err
+}
+
+// GetDNSCName returns the CNAME record requested
+func (c *API) GetDNSCName(fqdn string) (DnsCNameRecord, error) {
 	if _, err := c.GetZoneId(); err != nil {
 		c.Log.Error(err, "error in getting Zone ID")
-		return "", err
+		return DnsCNameRecord{}, err
 	}
 
 	ctx := context.Background()
@@ -429,20 +458,24 @@ func (c *API) GetDNSCNameId(fqdn string) (string, error) {
 	records, _, err := c.CloudflareClient.ListDNSRecords(ctx, rc, params)
 	if err != nil {
 		c.Log.Error(err, "error listing DNS records, check fqdn", "fqdn", fqdn)
-		return "", err
+		return DnsCNameRecord{}, err
 	}
 
 	switch len(records) {
 	case 0:
 		err := fmt.Errorf("no records returned")
 		c.Log.Info("no records returned for fqdn", "fqdn", fqdn)
-		return "", err
+		return DnsCNameRecord{}, err
 	case 1:
-		return records[0].ID, nil
+		return DnsCNameRecord{
+			Id:      records[0].ID,
+			Content: records[0].Content,
+			Proxied: ptr.Deref(records[0].Proxied, false),
+		}, nil
 	default:
 		err := fmt.Errorf("multiple records returned")
 		c.Log.Error(err, "multiple records returned for fqdn", "fqdn", fqdn)
-		return "", err
+		return DnsCNameRecord{}, err
 	}
 }
 
