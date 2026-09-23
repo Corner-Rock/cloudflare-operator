@@ -32,6 +32,7 @@ import (
 	"github.com/go-logr/logr"
 	yaml "gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -212,8 +213,17 @@ func (r *TunnelBindingReconciler) setStatus() error {
 		hostnames += hostname + ","
 	}
 
-	r.binding.Status.Services = status
-	r.binding.Status.Hostnames = strings.TrimSuffix(hostnames, ",")
+	newStatus := networkingv1alpha1.TunnelBindingStatus{
+		Services:  status,
+		Hostnames: strings.TrimSuffix(hostnames, ","),
+	}
+	// A status write is itself an update event on this object; skip it when nothing changed
+	// so a reconcile does not trigger the next one.
+	if equality.Semantic.DeepEqual(r.binding.Status, newStatus) {
+		r.log.V(1).Info("Tunnel status unchanged", "status", r.binding.Status)
+		return nil
+	}
+	r.binding.Status = newStatus
 
 	if err := r.Client.Status().Update(r.ctx, r.binding); err != nil {
 		r.log.Error(err, "Failed to update TunnelBinding status", "TunnelBinding.Namespace", r.binding.Namespace, "TunnelBinding.Name", r.binding.Name)
@@ -262,34 +272,37 @@ func (r *TunnelBindingReconciler) creationLogic() error {
 	if r.binding.Labels == nil {
 		r.binding.Labels = make(map[string]string)
 	}
+	// Only write metadata back when something actually changed; every Update is another
+	// reconcile trigger, and unconditional writes made the loop feed itself.
+	metaChanged := false
 	for k, v := range labelsForBinding(*r.binding) {
-		r.binding.Labels[k] = v
-	}
-
-	// Update TunnelBinding resource
-	if err := r.Update(r.ctx, r.binding); err != nil {
-		r.Recorder.Event(r.binding, corev1.EventTypeWarning, "FailedMetaSet", "Failed to set Labels")
-		return err
+		if r.binding.Labels[k] != v {
+			r.binding.Labels[k] = v
+			metaChanged = true
+		}
 	}
 
 	// Add finalizer for TunnelBinding if DNS updates are not disabled
-	if r.binding.TunnelRef.DisableDNSUpdates {
-		return nil
-	}
-
-	if !controllerutil.ContainsFinalizer(r.binding, tunnelFinalizer) {
+	if !r.binding.TunnelRef.DisableDNSUpdates && !controllerutil.ContainsFinalizer(r.binding, tunnelFinalizer) {
 		if !controllerutil.AddFinalizer(r.binding, tunnelFinalizer) {
 			r.Recorder.Event(r.binding, corev1.EventTypeWarning, "FailedMetaSet", "Failed to set Finalizer")
 			return fmt.Errorf("failed to set finalizer, trying again")
 		}
-		// Update TunnelBinding resource
-		if err := r.Update(r.ctx, r.binding); err != nil {
-			r.Recorder.Event(r.binding, corev1.EventTypeWarning, "FailedMetaSet", "Failed to set Finalizer")
-			return err
-		}
+		metaChanged = true
 	}
 
-	r.Recorder.Event(r.binding, corev1.EventTypeNormal, "MetaSet", "TunnelBinding Finalizer and Labels added")
+	// Update TunnelBinding resource
+	if metaChanged {
+		if err := r.Update(r.ctx, r.binding); err != nil {
+			r.Recorder.Event(r.binding, corev1.EventTypeWarning, "FailedMetaSet", "Failed to set Labels/Finalizer")
+			return err
+		}
+		r.Recorder.Event(r.binding, corev1.EventTypeNormal, "MetaSet", "TunnelBinding Finalizer and Labels added")
+	}
+
+	if r.binding.TunnelRef.DisableDNSUpdates {
+		return nil
+	}
 
 	errors := false
 	var err error
@@ -319,17 +332,23 @@ func (r *TunnelBindingReconciler) createDNSLogic(hostname string) error {
 		r.Recorder.Event(r.binding, corev1.EventTypeWarning, "FailedReadingTxt", fmt.Sprintf("FQDN already managed by Tunnel Name: %s, Id: %s", dnsTxtResponse.TunnelName, dnsTxtResponse.TunnelId))
 		return err
 	}
-	existingId, err := r.cfAPI.GetDNSCNameId(hostname)
+	existing, err := r.cfAPI.GetDNSCName(hostname)
 	// Check if a DNS record exists
-	if err == nil || existingId != "" {
+	if err == nil || existing.Id != "" {
 		// without a managed TXT record when we are not supposed to overwrite it
 		if !r.OverwriteUnmanaged && txtId == "" {
 			err := fmt.Errorf("unmanaged FQDN present")
 			r.Recorder.Event(r.binding, corev1.EventTypeWarning, "FailedReadingTxt", "FQDN present but unmanaged by Tunnel")
 			return err
 		}
+		// Nothing to do when both records already describe this tunnel. Reconciles fire on
+		// every status/metadata update, so writing unconditionally hammers the Cloudflare API.
+		if r.cfAPI.DnsUpToDate(existing, txtId, dnsTxtResponse) {
+			r.log.V(1).Info("DNS/TXT entries already up to date", "Hostname", hostname)
+			return nil
+		}
 		// To overwrite
-		dnsTxtResponse.DnsId = existingId
+		dnsTxtResponse.DnsId = existing.Id
 	}
 
 	newDnsId, err := r.cfAPI.InsertOrUpdateCName(hostname, dnsTxtResponse.DnsId)
@@ -416,8 +435,12 @@ func (r *TunnelBindingReconciler) getRelevantTunnelBindings() ([]networkingv1alp
 		r.log.Info("No tunnelBindings found, tunnel not in use")
 	}
 
-	// Sort by binding name for idempotent config generation
+	// Sort by namespace then name for idempotent config generation; a ClusterTunnel can be
+	// bound from same-named bindings in different namespaces.
 	sort.Slice(bindings, func(i, j int) bool {
+		if bindings[i].Namespace != bindings[j].Namespace {
+			return bindings[i].Namespace < bindings[j].Namespace
+		}
 		return bindings[i].Name < bindings[j].Name
 	})
 
@@ -524,10 +547,12 @@ func (r *TunnelBindingReconciler) setConfigMapConfiguration(config *cf.Configura
 		r.log.Error(err, "unable to marshal config to ConfigMap", "key", configmapKey)
 		return err
 	}
-	r.configmap.Data[configmapKey] = configStr
-	if err := r.Update(r.ctx, r.configmap); err != nil {
-		r.log.Error(err, "unable to marshal config to ConfigMap", "key", configmapKey)
-		return err
+	if r.configmap.Data[configmapKey] != configStr {
+		r.configmap.Data[configmapKey] = configStr
+		if err := r.Update(r.ctx, r.configmap); err != nil {
+			r.log.Error(err, "unable to marshal config to ConfigMap", "key", configmapKey)
+			return err
+		}
 	}
 
 	// Set checksum as annotation on Deployment, causing a restart of the Pods to take config
@@ -538,13 +563,20 @@ func (r *TunnelBindingReconciler) setConfigMapConfiguration(config *cf.Configura
 		return err
 	}
 	hash := md5.Sum([]byte(configStr))
+	checksum := hex.EncodeToString(hash[:])
+	// The checksum is compared rather than the ConfigMap contents so a Deployment that missed
+	// a previous restart (operator crash between the two writes) still picks the config up.
+	if cfDeployment.Spec.Template.Annotations[tunnelConfigChecksum] == checksum {
+		r.log.V(1).Info("Deployment already running current config, not restarting")
+		return nil
+	}
 	// Restart pods
 	r.Recorder.Event(r.binding, corev1.EventTypeNormal, "ApplyingConfig", "Applying ConfigMap to Deployment")
 	r.Recorder.Event(cfDeployment, corev1.EventTypeNormal, "ApplyingConfig", "Applying ConfigMap to Deployment")
 	if cfDeployment.Spec.Template.Annotations == nil {
 		cfDeployment.Spec.Template.Annotations = map[string]string{}
 	}
-	cfDeployment.Spec.Template.Annotations[tunnelConfigChecksum] = hex.EncodeToString(hash[:])
+	cfDeployment.Spec.Template.Annotations[tunnelConfigChecksum] = checksum
 	if err := r.Update(r.ctx, cfDeployment); err != nil {
 		r.log.Error(err, "Failed to update Deployment for restart")
 		r.Recorder.Event(r.binding, corev1.EventTypeWarning, "FailedApplyingConfig", "Failed to apply ConfigMap to Deployment")
