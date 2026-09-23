@@ -34,7 +34,17 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+      # The report diffs against the last successful push run on main, and the
+      # action fails hard when there is none yet.
+      - name: Check for a baseline run on main
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(gh run list --status=success --branch=main --workflow=test.yml --event=push --json=databaseId --limit=1 -q '.[] | .databaseId')
+          echo "exists=$([ -n "$id" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - uses: fgrosse/go-coverage-report@v1.1.1
+        if: steps.baseline.outputs.exists == 'true'
         with:
           coverage-artifact-name: "code-coverage"
           coverage-file-name: "cover.out"
