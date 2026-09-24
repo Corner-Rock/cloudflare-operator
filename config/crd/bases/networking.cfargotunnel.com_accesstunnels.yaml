@@ -71,7 +71,7 @@ spec:
                   This is not validated and used as provided
                 type: string
               image:
-                default: cloudflare/cloudflared:2026.9.1
+                default: cloudflare/cloudflared:2026.9.3
                 description: cloudflared image to use
                 type: string
               protocol:

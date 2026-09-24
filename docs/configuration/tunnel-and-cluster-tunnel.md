@@ -54,5 +54,5 @@ spec:
         spec:
           containers:
             - name: cloudflared
-              image: cloudflare/cloudflared:2026.9.1 # Image to run. Used for running a pinned image. Can be swapped out to an arm based image if needed
+              image: cloudflare/cloudflared:2026.9.3 # Image to run. Used for running a pinned image. Can be swapped out to an arm based image if needed
 ```
