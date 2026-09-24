@@ -1,8 +1,6 @@
 module github.com/adyanth/cloudflare-operator
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.25
 
 require (
 	github.com/cloudflare/cloudflare-go v0.115.0
@@ -14,7 +12,7 @@ require (
 	k8s.io/api v0.33.0
 	k8s.io/apimachinery v0.33.0
 	k8s.io/client-go v0.33.0
-	k8s.io/utils v0.0.0-20250321185631-1f6e0b77f77e
+	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3
 	sigs.k8s.io/controller-runtime v0.20.4
 	sigs.k8s.io/yaml v1.4.0
 )
