@@ -43,7 +43,7 @@ jobs:
         run: |
           id=$(gh run list --status=success --branch=main --workflow=test.yml --event=push --json=databaseId --limit=1 -q '.[] | .databaseId')
           echo "exists=$([ -n "$id" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - uses: fgrosse/go-coverage-report@v1.1.1
+      - uses: fgrosse/go-coverage-report@v1.4.0
         if: steps.baseline.outputs.exists == 'true'
         with:
           coverage-artifact-name: "code-coverage"
