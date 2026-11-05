@@ -7,7 +7,7 @@ toolchain go1.24.2
 require (
 	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/go-logr/logr v1.4.2
-	github.com/onsi/ginkgo/v2 v2.23.4
+	github.com/onsi/ginkgo/v2 v2.34.0
 	github.com/onsi/gomega v1.37.0
 	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v3 v3.0.1
